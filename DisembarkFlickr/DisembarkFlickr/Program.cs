@@ -20,7 +20,7 @@ namespace DisembarkFlickr
         private static OAuthRequestToken requestToken;
 
 
-        static void Main(string[] args)
+        static void Main1(string[] args)
         {
             string authFileName = "authentication.json";
             Flickr flickr = new Flickr(ApiKey, SharedSecret);
@@ -59,6 +59,55 @@ namespace DisembarkFlickr
             List<string> sb = new List<string>();
             StringBuilder sbUrl = new StringBuilder();
 
+            
+            var sets = flickr.PhotosetsGetList();
+            int ii = 0;
+            foreach (var item in sets)
+            {
+                var page = 0;
+                var list = new List<Photo>();
+
+                var p = flickr.PhotosetsGetPhotos(item.PhotosetId, page, 500);
+                list.AddRange(p);
+
+                while (p.Count == 500)
+                {
+                    p = flickr.PhotosetsGetPhotos(item.PhotosetId, ++page, 500);
+                    list.AddRange(p);
+                }
+
+                var totalPhotosForAlbum = list;
+
+                int pccount = 0;
+
+                foreach (var photo in totalPhotosForAlbum)
+                {
+                    try
+                    {
+                        Policy
+                        .Handle<Exception>()
+                        .Retry(3)
+                        .Execute(() =>
+                        {
+                            sb.Add(JsonConvert.SerializeObject(photo) + '\n');
+                            Console.Write($"{++pccount}-");
+                            var sizes = flickr.PhotosGetSizes(photo.PhotoId);
+                            var original = sizes.FirstOrDefault(s => s.Label.Equals("Original", StringComparison.InvariantCultureIgnoreCase));
+                            //var photoStaticURL = "https://farm" + photo.Farm + ".staticflickr.com/" + photo.Server + "/" + photo.PhotoId+ "_" + photo.Secret + "_b.jpg";
+                            sbUrl.AppendLine(original?.Source);
+                        });
+                    }
+                    catch (Exception e)
+                    {
+                        //bury
+                    }
+
+                }
+
+                System.IO.File.WriteAllText($@"photoInfo-{++ii}.json", $"[{string.Join(",", sb)}]");
+                System.IO.File.WriteAllText($@"Original-Url-{ii}.json", sbUrl.ToString());
+            }
+            
             return;
          
 
@@ -109,7 +158,7 @@ namespace DisembarkFlickr
         }
 
 
-        static void Main1(string[] args)
+        static void Main2(string[] args)
         {
             string authFileName = "authentication.json";
             Flickr flickr = new Flickr(ApiKey, SharedSecret);
@@ -202,6 +251,18 @@ namespace DisembarkFlickr
                 var folderName = $@"e:\FFlickr100-168\{i}";
                 System.IO.Directory.CreateDirectory(folderName);
                 DownloadUrisFromFile($@"F:\FlickrMetadata\Original-Url-{i}.json", folderName).Wait();
+            }
+
+        }
+
+        static void Main()
+        {
+            //DownloadUrisFromFile("Original-Url-32.json").Wait();
+            //for (int i = 152; i <= 168; i++)
+            {
+                var folderName = $@"e:\FFlickr100-168\Albums";
+                System.IO.Directory.CreateDirectory(folderName);
+                DownloadUrisFromFile($@"F:\FlickrMetadata\Original-Url-24.json", folderName).Wait();
             }
 
         }
