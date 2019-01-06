@@ -59,7 +59,7 @@ namespace DisembarkFlickr
             List<string> sb = new List<string>();
             StringBuilder sbUrl = new StringBuilder();
 
-            
+
             var sets = flickr.PhotosetsGetList();
             int ii = 0;
             foreach (var item in sets)
@@ -107,9 +107,9 @@ namespace DisembarkFlickr
                 System.IO.File.WriteAllText($@"photoInfo-{++ii}.json", $"[{string.Join(",", sb)}]");
                 System.IO.File.WriteAllText($@"Original-Url-{ii}.json", sbUrl.ToString());
             }
-            
+
             return;
-         
+
 
             for (int i = 154; i <= 168; i++)
             {
@@ -227,11 +227,11 @@ namespace DisembarkFlickr
                             Console.Write($"{++pccount}-");
                             var sizes = flickr.PhotosGetSizes(photo.PhotoId);
                             var original = sizes.FirstOrDefault(s => s.Label.Equals("Original", StringComparison.InvariantCultureIgnoreCase));
-                        //var photoStaticURL = "https://farm" + photo.Farm + ".staticflickr.com/" + photo.Server + "/" + photo.PhotoId+ "_" + photo.Secret + "_b.jpg";
-                        sbUrl.AppendLine(original?.Source);
+                            //var photoStaticURL = "https://farm" + photo.Farm + ".staticflickr.com/" + photo.Server + "/" + photo.PhotoId+ "_" + photo.Secret + "_b.jpg";
+                            sbUrl.AppendLine(original?.Source);
                         });
                     }
-                    catch(Exception e)
+                    catch (Exception e)
                     {
                         //bury
                     }
@@ -255,7 +255,7 @@ namespace DisembarkFlickr
 
         }
 
-        static void Main()
+        static void Main3()
         {
             //DownloadUrisFromFile("Original-Url-32.json").Wait();
             //for (int i = 152; i <= 168; i++)
@@ -266,6 +266,95 @@ namespace DisembarkFlickr
             }
 
         }
+
+        static void Main()
+        {
+            // GETTING THE TAGS
+
+            string authFileName = "authentication.json";
+            Flickr flickr = new Flickr(ApiKey, SharedSecret);
+
+            var requestToken = flickr.OAuthGetRequestToken("oob");
+
+            OAuthAccessToken accessToken = null;
+            if (System.IO.File.Exists(authFileName))
+            {
+                var settings = System.IO.File.ReadAllText(authFileName);
+                accessToken = Newtonsoft.Json.JsonConvert.DeserializeObject<OAuthAccessToken>(settings);
+            }
+
+            if (accessToken == null)
+            {
+                string url = flickr.OAuthCalculateAuthorizationUrl(requestToken.Token, AuthLevel.Write);
+
+                System.Diagnostics.Process.Start(url);
+                Console.WriteLine("Introduce the verification number and press <Enter>:");
+                var verification = Console.ReadLine();
+
+                accessToken = flickr.OAuthGetAccessToken(requestToken, verification);
+                System.IO.File.WriteAllText(authFileName, JsonConvert.SerializeObject(accessToken));
+                Console.WriteLine("The token is now saved");
+            }
+
+            flickr.OAuthAccessToken = accessToken.Token;
+            flickr.OAuthAccessTokenSecret = accessToken.TokenSecret;
+
+            Console.WriteLine("Successfully authenticated as " + accessToken.FullName);
+
+            for (int i = 31; i < 169; i++)
+            {
+                Console.WriteLine($"Processing {i}");
+                try
+                {
+                    var fileName = $"photoInfo-{i}";
+                    var photos = System.IO.File.ReadAllText($@"F:\FlickrMetadata\{fileName}.json");
+                    var photosList = JsonConvert.DeserializeObject<Photo[]>(photos).Select(p => p.PhotoId).ToList();
+
+                    var results = new StringBuilder();
+
+                    photosList.AsParallel().ForAll(
+                        new Action<string>(s =>
+                        {
+                            try
+                            {
+                                var tags = flickr.TagsGetListPhoto(s);//.Select(mm => mm.Raw).ToList<string>().Union(;
+
+                                results.AppendLine(string.Join("|", new List<string> { s }.Union(tags.Select(mm => mm.Raw))));
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine($"PhotoId:{s}. Exception {e}");
+                            }
+                        }));
+                    System.IO.File.WriteAllText($@"F:\FlickrMetadata\{fileName}-tags.json", results.ToString());
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex);
+                }
+                Console.ReadLine();
+            }
+        }
+
+
+        static async Task DownloadTags(List<string> results, Flickr flickr, string[] photoIds, string folderName)
+        {
+            const int CONCURRENCY_LEVEL = 20;    // Maximum of 4 requests at a time
+            int nextIndex = 0;
+            var downloadTasks = new List<Task>();
+            while (nextIndex < CONCURRENCY_LEVEL && nextIndex < photoIds.Length)
+            {
+
+                var callback = new Action<FlickrResult<System.Collections.ObjectModel.Collection<PhotoInfoTag>>>(t =>
+                {
+                    results.Add(string.Join("-", t.Result.Select(m => m.Raw)));
+                });
+
+                flickr.TagsGetListPhotoAsync(photoIds[nextIndex], callback);
+                nextIndex++;
+            }
+        }
+
 
         static async Task DownloadUrisFromFile(string fileName, string folderName)
         {
@@ -339,9 +428,6 @@ namespace DisembarkFlickr
                     nextIndex++;
                 }
             }
-
-
-
         }
 
     }
